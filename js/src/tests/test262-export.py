@@ -33,16 +33,58 @@ def convertTestFile(testSource):
     return newSource
 
 def captureReportCompare(source):
-    reportComparePattern = re.compile(r'reportCompare\(\s*0\s*,\s*0\s*\)(;)?')
+    p = re.compile(r'reportCompare\(\s*(\S*)\s*,\s*(\S*)\s*(,\s*\S*)?\);* ?(.*)$', re.MULTILINE)
 
-    token = reportComparePattern.match(source)
+    token = p.finditer(source)
 
-    if token:
-        print("YES COMPARE %s" % token.group(1))
-    else:
-        print("NO COMPARE")
+    newSource = source
 
-    return source
+    for part in token:
+        found = part.group()
+        actual = part.group(1)
+        expected = part.group(2)
+
+        print(found)
+        print(part.group(4))
+
+        if actual == expected:
+            if actual == "true" or actual == "0":
+                newSource = newSource.replace(found, part.group(4), 1)
+                continue;
+        
+        newSource = newSource.replace("reportCompare(", "assert.sameValue(", 1)
+
+    return newSource
+
+def collectRefTestEntries(reftest):
+    """
+    Collects and stores the entries from the reftest header.
+    """
+
+    SKIPIF_PATTERN = re.compile(r'skip-if\(.*\)')
+    ERROR_PATTERN = re.compile(r'error: *(\w)')
+    MODULE_PATTERN = re.compile(r'\smodule(\s|$)')
+    COMMENTS_PATTERN = re.compile(r' -- (.*)')
+
+    terms = []
+    comments = []
+
+    # should capture conditions to skip
+    matchesSkip = SKIPIF_PATTERN.match(reftest)
+
+    # should capture the expected error
+    matchesError = ERROR_PATTERN.match(reftest)
+
+    # just tells it's a module
+    matchesModule = MODULE_PATTERN.match(reftest)
+
+    # captures any comments
+    matchesComments = COMMENTS_PATTERN.match(reftest)
+
+    if matchesError:
+        print(matchesError.group(1))
+
+    return None
 
 def captureHeader(source):
     from lib.manifest import TEST_HEADER_PATTERN_INLINE, \
@@ -64,6 +106,8 @@ def captureHeader(source):
 
     # Remove the header from the source
     newSource = source.replace(matches.group(0) + "\n", "")
+
+    collectRefTestEntries(part)
 
     return newSource
 
