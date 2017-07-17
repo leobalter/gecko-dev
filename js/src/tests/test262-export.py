@@ -57,40 +57,40 @@ def collectRefTestEntries(reftest):
     Collects and stores the entries from the reftest header.
     """
 
-    terms = []
-    comments = []
+    features = []
+    error = None
+    comments = None
+    module = False
 
     # should capture conditions to skip
     matchesSkip = re.search(r'skip-if\((.*)\)', reftest)
     if matchesSkip:
         matches = matchesSkip.group(1).split('||')
         for match in matches:
-            # TODO: can we use this to populate a features list?
+            # captures a features list
             dependsOnProp = re.search(r'!this.hasOwnProperty\([\'\"](.*)[\'\"]\)', match)
             if dependsOnProp:
-                print("DEPENDS: %s" % dependsOnProp.group(1))
+                features.append(dependsOnProp.group(1))
+            # TODO: do something for other skip conditions?
 
     # should capture the expected error
     matchesError = re.search(r'error:\s*(\w*)', reftest)
     if matchesError:
-        # TODO: populate the yaml negative flags
         # issue: we can't say it's a runtime or an early error.
         # If it's not a SyntaxError or a ReferenceError, assume it's a runtime error (?)
-        print("error: %s" % matchesError.group(1))
+        error = matchesError.group(1)
 
     # just tells if it's a module
     matchesModule = re.search(r'\smodule(\s|$)', reftest)
     if matchesModule:
-        # TODO: flags: module
-        print("is module")
+        module = True
 
     # captures any comments
     matchesComments = re.search(r' -- (.*)', reftest)
     if matchesComments:
-        # TODO: use the comments on the yaml info tag
-        print("comments: %s" % matchesComments.group(1))
+        comments = matchesComments.group(1)
 
-    return None
+    return (features, error, module, comments)
 
 def captureHeader(source):
     from lib.manifest import TEST_HEADER_PATTERN_INLINE, \
