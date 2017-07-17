@@ -57,28 +57,28 @@ def collectRefTestEntries(reftest):
     Collects and stores the entries from the reftest header.
     """
 
-    SKIPIF_PATTERN = re.compile(r'skip-if\(.*\)')
-    ERROR_PATTERN = re.compile(r'error: *(\w)')
-    MODULE_PATTERN = re.compile(r'\smodule(\s|$)')
-    COMMENTS_PATTERN = re.compile(r' -- (.*)')
-
     terms = []
     comments = []
 
     # should capture conditions to skip
-    matchesSkip = SKIPIF_PATTERN.match(reftest)
+    matchesSkip = re.search(r'skip-if\((.*)\)', reftest)
+    if matchesSkip:
+        print("skip-if: %s" % matchesSkip.group(1))
 
     # should capture the expected error
-    matchesError = ERROR_PATTERN.match(reftest)
+    matchesError = re.search(r'error:\s*(\w*)', reftest)
+    if matchesError:
+        print("error: %s" % matchesError.group(1))
 
     # just tells it's a module
-    matchesModule = MODULE_PATTERN.match(reftest)
+    matchesModule = re.search(r'\smodule(\s|$)', reftest)
+    if matchesModule:
+        print("module")
 
     # captures any comments
-    matchesComments = COMMENTS_PATTERN.match(reftest)
-
-    if matchesError:
-        print(matchesError.group(1))
+    matchesComments = re.search(r' -- (.*)', reftest)
+    if matchesComments:
+        print("comments: %s" % matchesComments.group(1))
 
     return None
 
