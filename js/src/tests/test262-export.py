@@ -40,16 +40,12 @@ def captureReportCompare(source):
     newSource = source
 
     for part in token:
-        found = part.group()
         actual = part.group(1)
         expected = part.group(2)
 
-        print(found)
-        print(part.group(4))
-
         if actual == expected:
             if actual == "true" or actual == "0":
-                newSource = newSource.replace(found, part.group(4), 1)
+                newSource = newSource.replace(part.group(), part.group(4), 1)
                 continue;
         
         newSource = newSource.replace("reportCompare(", "assert.sameValue(", 1)
