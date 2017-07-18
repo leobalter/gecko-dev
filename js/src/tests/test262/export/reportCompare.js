@@ -3,34 +3,20 @@
 
 /*---
 esid: pending
-description: reportCompare
+description: assert.sameValue
 ---*/
+
 
 var a = 42;
 
+// comment
+assert.sameValue(trueish, true, "ok");
 
+assert.sameValue ( true, /*lol*/true, "ok");
 
-
-
-
-
+assert.sameValue(true, f instanceof Function);
+assert.sameValue(true, true, "don't crash");
 assert.sameValue(42, foo);
-assert.sameValue(foo, bar);
-assert.sameValue(call(x), call(y));
 
-// with comment
-// with comment
-// with comment
-// with comment
+// this was a assert.sameValue Line
 
-assert.sameValue(42, foo); // with comment
-assert.sameValue(foo, bar); // with comment
-assert.sameValue(call(x), call(y)); // with comment
-
-// Blocks:
-if (true) {
-    // this was a reportCompare Line
-    assert.sameValue(foo, 42, "message");
-}
-
-// at the EOF, no \n

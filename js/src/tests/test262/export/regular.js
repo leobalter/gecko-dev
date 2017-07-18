@@ -15,4 +15,4 @@ async function f() {
     await 0;
 }
 
-reportCompare(true, f instanceof Function);
+assert.sameValue(true, f instanceof Function);

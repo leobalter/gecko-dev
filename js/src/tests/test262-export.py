@@ -28,12 +28,24 @@ def convertTestFile(testSource):
     Convert a jstest test to a compatible Test262 test file.
     """
 
-    newSource = captureHeader(testSource)
-    newSource = captureReportCompare(newSource)
+    newSource = parseHeader(testSource)
+    newSource = parseReportCompare(newSource)
     return newSource
 
-def captureReportCompare(source):
-    p = re.compile(r'reportCompare\(\s*(\S*)\s*,\s*(\S*)\s*(,\s*\S*)?\);* ?(.*)$', re.MULTILINE)
+def parseReportCompare(source):
+    """
+    Captures all the reportCompare and convert them accordingly.
+
+    Cases with reportCompare calls where the arguments are the same and one of
+    0, true, or null, will be discarded as they are not necessary for Test262.
+
+    Otherwise, reportCompare will be replaced with assert.sameValue, as the
+    equivalent in Test262
+    """
+    p = re.compile(
+        r'^.*reportCompare\s*\(\s*(0|true|null)\s*,\s*(0|true|null)\s*(,\s*\S*)?\s*\)\s*;*\s*',
+        re.MULTILINE
+    )
 
     token = p.finditer(source)
 
@@ -44,11 +56,11 @@ def captureReportCompare(source):
         expected = part.group(2)
 
         if actual == expected:
-            if actual == "true" or actual == "0":
-                newSource = newSource.replace(part.group(), part.group(4), 1)
-                continue;
-        
-        newSource = newSource.replace("reportCompare(", "assert.sameValue(", 1)
+            newSource = newSource.replace(part.group(), '', 1)
+            continue;
+
+    for part in re.finditer(r'(\.|\W)?(reportCompare)\W?', newSource, re.MULTILINE):
+        newSource = newSource.replace(part.group(2), "assert.sameValue")
 
     return newSource
 
@@ -56,6 +68,8 @@ def collectRefTestEntries(reftest):
     """
     Collects and stores the entries from the reftest header.
     """
+
+    # TODO: fails, slow, skip, random, random-if
 
     features = []
     error = None
@@ -68,16 +82,18 @@ def collectRefTestEntries(reftest):
         matches = matchesSkip.group(1).split('||')
         for match in matches:
             # captures a features list
-            dependsOnProp = re.search(r'!this.hasOwnProperty\([\'\"](.*)[\'\"]\)', match)
+            dependsOnProp = re.search(
+                r'!this.hasOwnProperty\([\'\"](.*)[\'\"]\)', match)
             if dependsOnProp:
                 features.append(dependsOnProp.group(1))
-            # TODO: do something for other skip conditions?
+            # TODO: how do we parse the other skip conditions?
 
     # should capture the expected error
     matchesError = re.search(r'error:\s*(\w*)', reftest)
     if matchesError:
         # issue: we can't say it's a runtime or an early error.
-        # If it's not a SyntaxError or a ReferenceError, assume it's a runtime error (?)
+        # If it's not a SyntaxError or a ReferenceError,
+        # assume it's a runtime error(?)
         error = matchesError.group(1)
 
     # just tells if it's a module
@@ -92,9 +108,11 @@ def collectRefTestEntries(reftest):
 
     return (features, error, module, comments)
 
-def captureHeader(source):
-    from lib.manifest import TEST_HEADER_PATTERN_INLINE, \
-            TEST_HEADER_PATTERN_MULTI
+def parseHeader(source):
+    """
+    Parse the source to extract the header 
+    """
+    from lib.manifest import TEST_HEADER_PATTERN_INLINE
 
     # Bail early if we do not start with a single comment.
     if not source.startswith("//"):
@@ -105,15 +123,13 @@ def captureHeader(source):
     matches = TEST_HEADER_PATTERN_INLINE.match(part)
 
     if not matches:
-        # Search for a header using the /* */ pattern.
-        matches = TEST_HEADER_PATTERN_MULTI.match(part)
-        if not matches:
-            return source
+        return source
 
     # Remove the header from the source
     newSource = source.replace(matches.group(0) + "\n", "")
 
-    collectRefTestEntries(part)
+    # TODO: transform these values into frontmatter tags and values
+    (features, error, module, comments) = collectRefTestEntries(part)
 
     return newSource
 
@@ -160,10 +176,14 @@ def exportTest262(args):
 
             newSource = convertTestFile(testSource)
 
+            if not newSource:
+                print("SKIPPED %s" % testName)
+                continue
+
             with io.open(os.path.join(outDir, testName), "wb") as output:
                 output.write(newSource)
 
-            print("S %s" % testName)
+            print("SAVED %s" % testName)
 
 if __name__ == "__main__":
     import argparse
