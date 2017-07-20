@@ -14,6 +14,7 @@ import re
 import tempfile
 import shutil
 import sys
+import yaml
 
 from functools import partial
 from itertools import chain, imap
@@ -23,13 +24,17 @@ from itertools import chain, imap
 SUPPORT_FILES = set(["browser.js", "shell.js", "template.js", "user.js",
     "js-test-driver-begin.js", "js-test-driver-end.js"])
 
-def convertTestFile(testSource):
+FRONTMATTER_WRAPPER_PATTERN = re.compile(r'\---\n([\s]*)((?:\s|\S)*)[\n\s*]---',
+                         flags=re.DOTALL|re.MULTILINE)
+
+def convertTestFile(source):
     """
     Convert a jstest test to a compatible Test262 test file.
     """
 
-    newSource = parseHeader(testSource)
-    newSource = parseReportCompare(newSource)
+    newSource = parseReportCompare(source)
+    newSource = updateMeta(source)
+
     return newSource
 
 def parseReportCompare(source):
@@ -56,7 +61,7 @@ def parseReportCompare(source):
         expected = part.group(2)
 
         if actual == expected:
-            newSource = newSource.replace(part.group(), '', 1)
+            newSource = newSource.replace(part.group(), "", 1)
             continue;
 
     for part in re.finditer(r'(\.|\W)?(reportCompare)\W?', newSource, re.MULTILINE):
@@ -64,7 +69,7 @@ def parseReportCompare(source):
 
     return newSource
 
-def collectRefTestEntries(reftest):
+def fetchReftestEntries(reftest):
     """
     Collects and stores the entries from the reftest header.
     """
@@ -79,7 +84,7 @@ def collectRefTestEntries(reftest):
     # should capture conditions to skip
     matchesSkip = re.search(r'skip-if\((.*)\)', reftest)
     if matchesSkip:
-        matches = matchesSkip.group(1).split('||')
+        matches = matchesSkip.group(1).split("||")
         for match in matches:
             # captures a features list
             dependsOnProp = re.search(
@@ -108,6 +113,80 @@ def collectRefTestEntries(reftest):
 
     return (features, error, module, comments)
 
+def fetchMeta(source):
+    """
+    Capture the frontmatter metadata as yaml if it exists.
+    Returns a new dict if it doesn't.
+    """
+
+    match = FRONTMATTER_WRAPPER_PATTERN.search(source)
+    if not match:
+        return {}
+
+    unindented = re.sub('^' + match.group(1), '',
+        match.group(2), flags=re.MULTILINE)
+
+    return yaml.safe_load(unindented)
+
+def updateMeta(source):
+    reftest = parseHeader(source)
+
+    features = None
+    error = None
+    module = None
+    comments = None
+
+    if reftest:
+        # Remove the header from the source
+        source = source.replace(reftest + "\n", "")
+
+        # fetch the reftest entries
+        features, error, module, comments = fetchReftestEntries(reftest)
+
+    # fetch the frontmatter meta if present
+    frontmatter = fetchMeta(source)
+
+    # Specify an esid if none
+    if not "esid" in frontmatter:
+        frontmatter["esid"] = "pending"
+
+    # If any features are found, certify 
+    if features:
+        # TODO: Check if each feature is not already in the tag
+        if "features" in frontmatter:
+            frontmatter["features"] += features
+        else:
+            frontmatter["features"] = features
+
+    if module:
+        if "flags" in frontmatter:
+            # Append only if it's not present
+            if not "module" in frontmatter["flags"]:
+                frontmatter["flags"].append("module")
+        else:
+            frontmatter["flags"] = ["module"]
+
+    # Add any comments to the info tag
+    if comments:
+        if "info" in frontmatter:
+            frontmatter["info"] += "\n\n" + comments
+        else:
+            frontmatter["info"] = comments
+    
+    # Set the negative flags; verify if everything is matching
+    if error:
+        if not "negative" in frontmatter:
+            frontmatter["negative"] = {
+                "phase": "early",
+                "type": error
+            }
+
+    # TODO: add 4 spaces indentation
+    newFrontmatter = yaml.dump(frontmatter)
+
+    return FRONTMATTER_WRAPPER_PATTERN.sub(source, newFrontmatter)
+
+
 def parseHeader(source):
     """
     Parse the source to extract the header 
@@ -119,19 +198,13 @@ def parseHeader(source):
         return source
 
     # Extract the token.
-    part, _, _ = source.partition('\n')
+    part, _, _ = source.partition("\n")
     matches = TEST_HEADER_PATTERN_INLINE.match(part)
 
     if not matches:
-        return source
+        return
 
-    # Remove the header from the source
-    newSource = source.replace(matches.group(0) + "\n", "")
-
-    # TODO: transform these values into frontmatter tags and values
-    (features, error, module, comments) = collectRefTestEntries(part)
-
-    return newSource
+    return matches.group(0)
 
 def exportTest262(args):
     src = args.src
