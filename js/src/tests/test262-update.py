@@ -331,7 +331,7 @@ def process_test262(test262Dir, test262OutDir, strictTests):
             continue
 
         # Skip creating a "prs" directory if it already exists
-        if not os.path.exists(os.path.join(test262OutDir, relPath)) or relPath != "prs" and relPath != "local":
+        if relPath != "prs" and relPath != "local" or not os.path.exists(os.path.join(test262OutDir, relPath)):
             os.makedirs(os.path.join(test262OutDir, relPath))
 
         includeSet = set()
@@ -362,10 +362,20 @@ def process_test262(test262Dir, test262OutDir, strictTests):
         writeShellAndBrowserFiles(test262OutDir, harnessDir, includesMap, localIncludesMap, relPath)
 
 def fetch_local_changes(inDir, outDir, srcDir, strictTests):
+    """
+    Fetch the changes from a local clone of Test262.
+
+    1. Get the list of file changes made by the current branch used on Test262 (srcDir).
+    2. Copy only the (A)dded, (C)opied, (M)odified, and (R)enamed files to inDir.
+    3. inDir is treated like a Test262 checkout, where files will be converted.
+    4. Fetches the current branch name to set the outDir.
+    5. Processed files will be added to `<outDir>/local/<branchName>`.
+    """
     import subprocess
 
     # TOOD: fail if it's in the master branch? or require a branch name?
 
+    # Checks for unstaged or non committed files. A clean branch provices a clean status.
     status = subprocess.check_output(
         ("git -C %s status --porcelain" % srcDir).split(" ")
     )
@@ -375,21 +385,35 @@ def fetch_local_changes(inDir, outDir, srcDir, strictTests):
             "Please commit files and cleanup the local test262 folder before importing files.\nCurrent status: \n%s"
             % status)
 
+    # Captures the branch name to be used on the output
     branchName = subprocess.check_output(
         ("git -C %s rev-parse --abbrev-ref HEAD" % srcDir).split(" ")).split("\n")[0]
+
+    # Fetches the file names to import
     files = subprocess.check_output(
         ("git -C %s diff master --diff-filter=ACMR --name-only" % srcDir).split(" ")
     )
+
+    # Fetches the deleted files to print an output log. This can be used to
+    # set up the skip list, if necessary.
     deletedFiles = subprocess.check_output(
         ("git -C %s diff master --diff-filter=D --name-only" % srcDir).split(" ")
     )
+
+    # Fetches the modified files as well for logging to support maintenance
+    # in the skip list.
     modifiedFiles = subprocess.check_output(
         ("git -C %s diff master --diff-filter=M --name-only" % srcDir).split(" ")
     )
+
+    # Fetches the renamed files for the same reason, this avoids duplicate
+    # tests if running the new local folder and the general imported Test262
+    # files.
     renamedFiles = subprocess.check_output(
         ("git -C %s diff master --diff-filter=R --summary" % srcDir).split(" ")
     )
 
+    # Print some friendly output
     print("From the branch %s in %s \n" % (branchName, srcDir))
     print("Files being copied to the local folder: \n%s" % files)
     if deletedFiles:
@@ -408,11 +432,12 @@ def fetch_local_changes(inDir, outDir, srcDir, strictTests):
 
         shutil.copyfile(os.path.join(srcDir, f), os.path.join(fileTree, f.split(os.sep)[-1]))
 
-    # Extras
+    # Extras from Test262. Copy the current support folders - including the
+    # harness - for a proper convertion process
     shutil.copytree(os.path.join(srcDir, "tools"), os.path.join(inDir, "tools"))
     shutil.copytree(os.path.join(srcDir, "harness"), os.path.join(inDir, "harness"))
 
-    # Reset any older directory in the output
+    # Reset any older directory in the output using the same branch name
     outDir = os.path.join(outDir, "local", branchName)
     if os.path.isdir(outDir):
         shutil.rmtree(outDir)
