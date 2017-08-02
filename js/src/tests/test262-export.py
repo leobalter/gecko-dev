@@ -35,6 +35,7 @@ def convertTestFile(source):
 
     source = parseReportCompare(source)
     source = updateMeta(source)
+    source = insertCopyrightLines(source)
 
     return source
 
@@ -258,6 +259,22 @@ def mergeMeta(reftest, frontmatter):
                 frontmatter["negative"]["type"]))
 
     return frontmatter
+
+def insertCopyrightLines(source):
+    """
+    Insert the copyright lines into the file.
+    """
+    from datetime import date
+
+    lines = []
+
+    if not re.match(r'\/\/\s+Copyright.*\. All rights reserved.', source):
+        year = date.today().year
+        lines.append("// Copyright (C) %s Mozilla Corporation. All rights reserved." % year)
+        lines.append("// This code is governed by the BSD license found in the LICENSE file.")
+        lines.append("\n")
+
+    return "\n".join(lines) + source
 
 def insertMeta(source, frontmatter):
     """
