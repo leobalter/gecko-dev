@@ -8,7 +8,6 @@
 from __future__ import print_function
 
 import contextlib
-import io
 import os
 import re
 import tempfile
@@ -25,21 +24,20 @@ SUPPORT_FILES = set(["browser.js", "shell.js", "template.js", "user.js",
     "js-test-driver-begin.js", "js-test-driver-end.js"])
 
 FRONTMATTER_WRAPPER_PATTERN = re.compile(
-    r'/\*\---\n([\s]*)((?:\s|\S)*)[\n\s*]---\*/',
-    flags=re.DOTALL|re.MULTILINE)
+    r'/\*\---\n([\s]*)((?:\s|\S)*)[\n\s*]---\*/', flags=re.DOTALL)
 
 def convertTestFile(source):
     """
     Convert a jstest test to a compatible Test262 test file.
     """
 
-    source = parseReportCompare(source)
+    source = convertReportCompare(source)
     source = updateMeta(source)
     source = insertCopyrightLines(source)
 
     return source
 
-def parseReportCompare(source):
+def convertReportCompare(source):
     """
     Captures all the reportCompare and convert them accordingly.
 
@@ -49,27 +47,23 @@ def parseReportCompare(source):
     Otherwise, reportCompare will be replaced with assert.sameValue, as the
     equivalent in Test262
     """
-    p = re.compile(
-        r'^.*reportCompare\s*\(\s*(0|true|null)\s*,\s*(0|true|null)\s*(,\s*\S*)?\s*\)\s*;*\s*',
-        re.MULTILINE
+
+    def matchFn(matchobj):
+        actual = matchobj.group(1)
+        expected = matchobj.group(2)
+
+        if actual == expected and actual in ["0", "true", "null"]:
+            return
+
+        return matchobj.group()
+    
+    newSource = re.sub(
+        r'.*reportCompare\s*\(\s*(\w*)\s*,\s*(\w*)\s*(,\s*\S*)?\s*\)\s*;*\s*',
+        matchFn,
+        source
     )
 
-    token = p.finditer(source)
-
-    newSource = source
-
-    for part in token:
-        actual = part.group(1)
-        expected = part.group(2)
-
-        if actual == expected:
-            newSource = newSource.replace(part.group(), "", 1)
-            continue;
-
-    for part in re.finditer(r'(\.|\W)?(reportCompare)\W?', newSource, re.MULTILINE):
-        newSource = newSource.replace(part.group(2), "assert.sameValue")
-
-    return newSource
+    return re.sub(r'([.\W]?)reportCompare(\W?)', r'\1assert.sameValue\2', newSource)
 
 def fetchReftestEntries(reftest):
     """
@@ -84,27 +78,27 @@ def fetchReftestEntries(reftest):
     module = False
 
     # should capture conditions to skip
-    matchesSkip = re.search(r'skip-if\((.*)\)', reftest)
+    matchesSkip = re.search(r'skip-if\((.*)?\)', reftest)
     if matchesSkip:
         matches = matchesSkip.group(1).split("||")
         for match in matches:
             # captures a features list
             dependsOnProp = re.search(
-                r'!this.hasOwnProperty\([\'\"](.*)[\'\"]\)', match)
+                r'!this.hasOwnProperty\([\'\"](.*?)[\'\"]\)', match)
             if dependsOnProp:
                 features.append(dependsOnProp.group(1))
-            # TODO: how do we parse the other skip conditions?
+            else:
+                print("# Can't parse the following skip-if rule: %s" % match)
 
     # should capture the expected error
     matchesError = re.search(r'error:\s*(\w*)', reftest)
     if matchesError:
-        # issue: we can't say it's a runtime or an early error.
-        # If it's not a SyntaxError or a ReferenceError,
-        # assume it's a runtime error(?)
+        # The metadata from the reftests won't say if it's a runtime or an
+        # early error. This specification is required for the frontmatter tags.
         error = matchesError.group(1)
 
     # just tells if it's a module
-    matchesModule = re.search(r'\smodule(\s|$)', reftest)
+    matchesModule = re.search(r'\bmodule\b', reftest)
     if matchesModule:
         module = True
 
@@ -143,7 +137,7 @@ def parseHeader(source):
 
     return (source, {})
 
-def fetchMeta(source):
+def extractMeta(source):
     """
     Capture the frontmatter metadata as yaml if it exists.
     Returns a new dict if it doesn't.
@@ -153,8 +147,9 @@ def fetchMeta(source):
     if not match:
         return {}
 
-    unindented = re.sub('^' + match.group(1), '',
-        match.group(2), flags=re.MULTILINE)
+    indent, frontmatter_lines = match.groups()
+
+    unindented = re.sub('^%s' % indent, '', frontmatter_lines)
 
     return yaml.safe_load(unindented)
 
@@ -167,8 +162,8 @@ def updateMeta(source):
     # Extract the reftest data from the source
     source, reftest = parseHeader(source)
 
-    # Collect the frontmatter data from the source
-    frontmatter = fetchMeta(source)
+    # Extract the frontmatter data from the source
+    frontmatter = extractMeta(source)
 
     # Merge the reftest and frontmatter
     merged = mergeMeta(reftest, frontmatter)
@@ -186,8 +181,7 @@ def cleanupMeta(meta):
 
     # Populate required tags
     for tag in ("description", "esid"):
-        if tag not in meta:
-            meta[tag] = "pending"
+        meta.setdefault(tag, "pending")
 
     # Trim values on each string tag
     for tag in ("description", "esid", "es5id", "es6id", "info", "author"):
@@ -202,10 +196,9 @@ def cleanupMeta(meta):
 
     if "negative" in meta:
         # If the negative tag exists, phase needs to be present and set
-        if "phase" not in meta["negative"] or \
-            meta["negative"]["phase"] not in ("early", "runtime"):
-                print("Warning: the negative.phase is not properly set.\n" + \
-                    "Ref https://github.com/tc39/test262/blob/master/INTERPRETING.md#negative")
+        if meta["negative"].get("phase") not in ("early", "runtime"):
+            print("Warning: the negative.phase is not properly set.\n" + \
+                "Ref https://github.com/tc39/test262/blob/master/INTERPRETING.md#negative")
         # If the negative tag exists, type is required
         if "type" not in meta["negative"]:
             print("Warning: the negative.type is not set.\n" + \
@@ -222,33 +215,32 @@ def mergeMeta(reftest, frontmatter):
     # Merge the meta from reftest to the frontmatter
 
     if "features" in reftest:
-        if "features" in frontmatter:
-            frontmatter["features"] += reftest["features"]
-        else:
-            frontmatter["features"] = reftest["features"]
+        frontmatter.setdefault("features", []) \
+            .extend(reftest.get("features", []))
 
     # Only add the module flag if the value from reftest is truish
     if reftest.get("module"):
-        if "flags" in frontmatter:
-            frontmatter["flags"].append("module")
-        else:
-            frontmatter["flags"] = ["module"]
+        frontmatter.setdefault("flags", []).append("module")
 
     # Add any comments to the info tag
-    if reftest.get("info"):
-        info = reftest["info"]
-
+    info = reftest.get("info")
+    if info:
         # Open some space in an existing info text
         if "info" in frontmatter:
-            frontmatter["info"] += "\n\n  "
-
-        frontmatter["info"] = info
+            frontmatter["info"] += "\n\n  \%" % info
+        else: 
+            frontmatter["info"] = info
     
     # Set the negative flags
     if "error" in reftest:
         error = reftest["error"]
         if "negative" not in frontmatter:
             frontmatter["negative"] = {
+                # This code is assuming error tags are early errors, but they
+                # might be runtime errors as well.
+                # From this point, this code can also print a warning asking to
+                # specify the error phase in the generated code or fill the
+                # phase with an empty string.
                 "phase": "early",
                 "type": error
             }
@@ -291,12 +283,9 @@ def insertMeta(source, frontmatter):
             lines.append("  " + yaml.dump(value, encoding="utf8",
                 ).strip().replace('\n...', ''))
         else:
-            lines.append(yaml.dump({key: frontmatter[key]}, encoding="utf8",
+            lines.append(yaml.dump({key: value}, encoding="utf8",
                 default_flow_style=False).strip())
 
-
-    #lines.append(yaml.dump(frontmatter, encoding='utf8',
-    #    default_flow_style=False).strip())
     lines.append("---*/")
 
     match = FRONTMATTER_WRAPPER_PATTERN.search(source)
@@ -307,14 +296,10 @@ def insertMeta(source, frontmatter):
         return "\n".join(lines) + source
 
 def exportTest262(args):
-    src = args.src
-    outDir = args.out
+    from io import open
 
-    if not os.path.isabs(src):
-        src = os.path.join(os.getcwd(), src)
-
-    if not os.path.isabs(outDir):
-        outDir = os.path.join(os.getcwd(), outDir)
+    src = os.path.abspath(args.src[0])
+    outDir = os.path.abspath(args.out)
 
     # Create the output directory from scratch.
     if os.path.isdir(outDir):
@@ -324,9 +309,11 @@ def exportTest262(args):
     for (dirPath, _, fileNames) in os.walk(src):
         relPath = os.path.relpath(dirPath, src)
 
+        relOutDir = os.path.join(outDir, relPath)
+
         # This also creates the own outDir folder
-        if not os.path.exists(os.path.join(outDir, relPath)):
-            os.makedirs(os.path.join(outDir, relPath))
+        if not os.path.exists(relOutDir):
+            os.makedirs(relOutDir)
 
         for fileName in fileNames:
             # Skip browser.js and shell.js files
@@ -344,7 +331,7 @@ def exportTest262(args):
                 continue
 
             # Read the original test source and preprocess it for Test262
-            with io.open(filePath, "rb") as testFile:
+            with open(filePath, "rb") as testFile:
                 testSource = testFile.read()
 
             if not testSource:
@@ -353,7 +340,7 @@ def exportTest262(args):
 
             newSource = convertTestFile(testSource)
 
-            with io.open(os.path.join(outDir, testName), "wb") as output:
+            with open(os.path.join(outDir, testName), "wb") as output:
                 output.write(newSource)
 
             print("SAVED %s" % testName)
@@ -368,7 +355,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Export tests to match Test262 file compliance.")
     parser.add_argument("--out", default="test262/export",
                         help="Output directory. Any existing directory will be removed! (default: %(default)s)")
-    parser.add_argument("src", nargs="?", help="Source folder with test files to export")
+    parser.add_argument("src", nargs="+", help="Source folder with test files to export")
     parser.set_defaults(func=exportTest262)
     args = parser.parse_args()
     args.func(args)
