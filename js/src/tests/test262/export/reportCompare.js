@@ -19,5 +19,5 @@ assert.sameValue(true, f instanceof Function);
 assert.sameValue(true, true, "don't crash");
 assert.sameValue(42, foo);
 
-// this was a assert.sameValue Line
+    // this was a assert.sameValue Line
 
