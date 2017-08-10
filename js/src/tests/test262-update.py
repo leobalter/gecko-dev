@@ -331,7 +331,7 @@ def process_test262(test262Dir, test262OutDir, strictTests):
             continue
 
         # Skip creating a "prs" directory if it already exists
-        if relPath != "prs" and relPath != "local" or not os.path.exists(os.path.join(test262OutDir, relPath)):
+        if relPath not in ("prs", "local") and not os.path.exists(os.path.join(test262OutDir, relPath)):
             os.makedirs(os.path.join(test262OutDir, relPath))
 
         includeSet = set()
@@ -375,7 +375,7 @@ def fetch_local_changes(inDir, outDir, srcDir, strictTests):
 
     # TOOD: fail if it's in the master branch? or require a branch name?
 
-    # Checks for unstaged or non committed files. A clean branch provices a clean status.
+    # Checks for unstaged or non committed files. A clean branch provides a clean status.
     status = subprocess.check_output(
         ("git -C %s status --porcelain" % srcDir).split(" ")
     )
@@ -426,14 +426,17 @@ def fetch_local_changes(inDir, outDir, srcDir, strictTests):
     for f in files.splitlines():
         # Capture the subdirectories names to recreate the file tree
         # TODO: join the file tree with -- instead of multiple subfolders?
-        fileTree = os.path.join(inDir, *f.split(os.sep)[:-1])
+        fileTree = os.path.join(inDir, os.path.dirname(f))
         if not os.path.exists(fileTree):
             os.makedirs(fileTree)
 
-        shutil.copyfile(os.path.join(srcDir, f), os.path.join(fileTree, f.split(os.sep)[-1]))
+        shutil.copyfile(
+            os.path.join(srcDir, f),
+            os.path.join(fileTree, os.path.basename(f))
+        )
 
     # Extras from Test262. Copy the current support folders - including the
-    # harness - for a proper convertion process
+    # harness - for a proper conversion process
     shutil.copytree(os.path.join(srcDir, "tools"), os.path.join(inDir, "tools"))
     shutil.copytree(os.path.join(srcDir, "harness"), os.path.join(inDir, "harness"))
 
