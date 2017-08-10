@@ -48,22 +48,22 @@ def convertReportCompare(source):
     equivalent in Test262
     """
 
-    def matchFn(matchobj):
+    def replaceFn(matchobj):
         actual = matchobj.group(1)
         expected = matchobj.group(2)
 
         if actual == expected and actual in ["0", "true", "null"]:
-            return
+            return ""
 
         return matchobj.group()
-    
+
     newSource = re.sub(
         r'.*reportCompare\s*\(\s*(\w*)\s*,\s*(\w*)\s*(,\s*\S*)?\s*\)\s*;*\s*',
-        matchFn,
+        replaceFn,
         source
     )
 
-    return re.sub(r'([.\W]?)reportCompare(\W?)', r'\1assert.sameValue\2', newSource)
+    return re.sub(r'\breportCompare\b', "assert.sameValue", newSource)
 
 def fetchReftestEntries(reftest):
     """
@@ -78,7 +78,7 @@ def fetchReftestEntries(reftest):
     module = False
 
     # should capture conditions to skip
-    matchesSkip = re.search(r'skip-if\((.*)?\)', reftest)
+    matchesSkip = re.search(r'skip-if\((.*)\)', reftest)
     if matchesSkip:
         matches = matchesSkip.group(1).split("||")
         for match in matches:
@@ -230,7 +230,7 @@ def mergeMeta(reftest, frontmatter):
             frontmatter["info"] += "\n\n  \%" % info
         else: 
             frontmatter["info"] = info
-    
+
     # Set the negative flags
     if "error" in reftest:
         error = reftest["error"]
@@ -296,8 +296,6 @@ def insertMeta(source, frontmatter):
         return "\n".join(lines) + source
 
 def exportTest262(args):
-    from io import open
-
     src = os.path.abspath(args.src[0])
     outDir = os.path.abspath(args.out)
 
