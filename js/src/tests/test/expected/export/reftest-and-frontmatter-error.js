@@ -3,19 +3,20 @@
 
 
 /*---
+esid: sec-let-and-const-declarations
+features: []
+negative:
+  phase: runtime
+  type: SyntaxError
 description: |
   Outside AsyncFunction, |await| is a perfectly cromulent LexicalDeclaration variable
   name.  Therefore ASI doesn't apply, and so the |0| where a |=| was expected is a
   syntax error.
-author: Jeff Walden <jwalden+code@mit.edu>
-features: []
-negative:
-  phase: early
-  type: SyntaxError
-esid: sec-let-and-const-declarations
 ---*/
 
-function f() {
-    let
-    await 0;
-}
+eval(`
+    function f() {
+        let
+        await 0;
+    }
+`);
