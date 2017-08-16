@@ -19,10 +19,17 @@ class TestExport(unittest.TestCase):
         stdout, stderr = sp.communicate()
         return dict(stdout=stdout, stderr=stderr, returncode=sp.returncode)
 
+    def isTestFile(self, filename):
+        return not (
+            filename.startswith('.') or
+            filename.startswith('#') or
+            filename.endswith('~')
+        )
+
     def getFiles(self, path):
         names = []
         for root, _, fileNames in os.walk(path):
-            for fileName in filter(lambda x: x[0] != '.', fileNames):
+            for fileName in filter(self.isTestFile, fileNames):
                 names.append(os.path.join(root, fileName))
         names.sort()
         return names
